@@ -24,6 +24,7 @@ namespace Npgsql
         {
             var db = new PostgresDatabaseInfo(conn);
             await db.LoadPostgresInfo(conn, timeout, async);
+            Debug.Assert(db.LongVersion != null);
             return db;
         }
     }
@@ -51,8 +52,15 @@ namespace Npgsql
         /// </summary>
         public bool IsRedshift { get; private set; }
 
+        /// <summary>
+        /// True if the backend is CockroachDb; otherwise, false.
+        /// </summary>
+        public bool IsCockroachDb { get; private set; }
+
         /// <inheritdoc />
         public override bool SupportsUnlisten => Version >= new Version(6, 4, 0) && !IsRedshift;
+
+        public override bool SupportsCloseAll => Version.IsGreaterOrEqual(8, 3, 0) && !IsCockroachDb;
 
         /// <summary>
         /// True if the 'pg_enum' table includes the 'enumsortorder' column; otherwise, false.
@@ -90,6 +98,7 @@ namespace Npgsql
 
             IsRedshift = conn.Settings.ServerCompatibilityMode == ServerCompatibilityMode.Redshift;
             _types = await LoadBackendTypes(conn, timeout, async);
+            IsCockroachDb = LongVersion.StartsWith("CockroachDB");
         }
 
         /// <summary>
@@ -112,6 +121,8 @@ namespace Npgsql
         static string GenerateTypesQuery(bool withRange, bool withEnum, bool withEnumSortOrder,
             bool loadTableComposites)
             => $@"
+SELECT version();
+
 SELECT ns.nspname, typ_and_elem_type.*,
    CASE
        WHEN typtype IN ('b', 'e', 'p') THEN 0           -- First base types, enums, pseudo-types
@@ -209,7 +220,21 @@ ORDER BY oid{(withEnumSortOrder ? ", enumsortorder" : "")};" : "")}
             using var reader = async ? await command.ExecuteReaderAsync() : command.ExecuteReader();
             var byOID = new Dictionary<uint, PostgresType>();
 
-            // First load the types themselves
+            // First the PostgreSQL version
+            if (async)
+            {
+                await reader.ReadAsync();
+                LongVersion = reader.GetString(0);
+                await reader.NextResultAsync();
+            }
+            else
+            {
+                reader.Read();
+                LongVersion = reader.GetString(0);
+                reader.NextResult();
+            }
+
+            // Then load the types
             while (async ? await reader.ReadAsync() : reader.Read())
             {
                 timeout.Check();

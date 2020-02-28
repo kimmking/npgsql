@@ -29,6 +29,13 @@ namespace Npgsql
         #region General database info
 
         /// <summary>
+        /// The PostgreSQL version string as returned by the version() function.
+        ///
+        /// Instances of this class returned by <see cref="INpgsqlDatabaseInfoFactory"/> must have this property
+        /// set.
+        /// </summary>
+        public string LongVersion { get; set; } = string.Empty;
+        /// <summary>
         /// The hostname of IP address of the database.
         /// </summary>
         public string Host { get; }
